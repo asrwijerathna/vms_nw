@@ -1,17 +1,24 @@
 <?php
 require '../../core/config.php';
 
-if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'admin') {
+if (!hasPrivilege('tile_backup')) {
     die('Access denied');
-}
-
-$dump_path = 'C:\\xampp\\mysql\\bin\\mysqldump.exe'; // Default XAMPP path
-if (!file_exists($dump_path)) {
-    die("Error: mysqldump not found at $dump_path");
 }
 
 $backup_file = 'backup_' . date('Y-m-d_H-i-s') . '.sql';
 $temp_path = sys_get_temp_dir() . '/' . $backup_file;
+
+// Determine mysqldump command based on OS and environment
+if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+    $dump_path = 'C:\\xampp\\mysql\\bin\\mysqldump.exe';
+    if (!file_exists($dump_path)) {
+        // Fallback for Windows if not XAMPP
+        $dump_path = 'mysqldump';
+    }
+} else {
+    // Linux/Mac
+    $dump_path = 'mysqldump';
+}
 
 // Use escapeshellarg to handle special characters (like & in the password) safely
 // Note: On Windows, escapeshellarg surrounds with double quotes, which is what we want for CMD.

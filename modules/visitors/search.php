@@ -70,77 +70,52 @@ $t = $translations[$lang] ?? $translations['en'];
 $visitor = null;
 $visits = [];
 $error = '';
-$search_query = '';
+$search_nic = '';
+$search_visit_id = '';
 
 if (isset($_POST['search'])) {
-    $search_query = trim($_POST['search_query']);
+    $search_nic = trim($_POST['search_nic']);
+    $search_visit_id = trim($_POST['search_visit_id']);
     
-    if (!empty($search_query)) {
-        // Search by NIC or Visitor ID
-        // First try to find by NIC
+    if (!empty($search_nic) && !empty($search_visit_id)) {
+        // Try to find visitor by NIC
         $stmt = $pdo->prepare("SELECT * FROM visitors WHERE nic = ?");
-        $stmt->execute([$search_query]);
+        $stmt->execute([$search_nic]);
         $visitor = $stmt->fetch();
 
-        if (!$visitor) {
-            // Try finding by Visit ID in visits table
-            $stmt = $pdo->prepare("SELECT nic FROM visits WHERE visit_id = ?");
-            $stmt->execute([$search_query]);
-            $found_nic = $stmt->fetchColumn();
-            
-            // If not found, try with padding (e.g. 434 -> 00000434)
-            if (!$found_nic) {
-                 $padded_id = str_pad($search_query, 8, '0', STR_PAD_LEFT);
-                 $stmt = $pdo->prepare("SELECT nic FROM visits WHERE visit_id = ?");
-                 $stmt->execute([$padded_id]);
-                 $found_nic = $stmt->fetchColumn();
-                 if($found_nic) $search_query = $padded_id; // Update query for later use
-            }
-            
-            if ($found_nic) {
-                 $stmt = $pdo->prepare("SELECT * FROM visitors WHERE nic = ?");
-                 $stmt->execute([$found_nic]);
-                 $visitor = $stmt->fetch();
-                 $is_visit_search = true; // Flag to indicate search was by Visit ID
-            }
-        }
-
         if ($visitor) {
-            // Fetch visits
-            if (isset($is_visit_search) && $is_visit_search) {
-                 // If searched by Visit ID, show ONLY that visit
-                 $stmt = $pdo->prepare("SELECT v.*, s.section_name, COALESCE(o.name, 'Not Assigned') AS officer 
-                           FROM visits v 
-                           JOIN sections s ON v.section_id = s.id 
-                           LEFT JOIN officers o ON v.officer_id = o.id 
-                           WHERE v.visit_id = ?");
-                $stmt->execute([$search_query]);
-            } else {
-                 // If searched by NIC, show all visits
-                 $stmt = $pdo->prepare("SELECT v.*, s.section_name, COALESCE(o.name, 'Not Assigned') AS officer 
-                           FROM visits v 
-                           JOIN sections s ON v.section_id = s.id 
-                           LEFT JOIN officers o ON v.officer_id = o.id 
-                           WHERE v.nic = ? ORDER BY v.visit_datetime DESC");
-                $stmt->execute([$visitor['nic']]);
-            }
+            // Find specific visit matching both NIC and Visit ID
+            $stmt = $pdo->prepare("
+                SELECT v.*, s.section_name, COALESCE(o.name, 'Not Assigned') AS officer 
+                FROM visits v 
+                JOIN sections s ON v.section_id = s.id 
+                LEFT JOIN officers o ON v.officer_id = o.id 
+                WHERE v.nic = ? AND (v.visit_id = ? OR v.visit_id = ?)
+            ");
+            
+            $padded_id = str_pad($search_visit_id, 8, '0', STR_PAD_LEFT);
+            $stmt->execute([$search_nic, $search_visit_id, $padded_id]);
             $visits = $stmt->fetchAll();
 
-            // Fetch actions for each visit
-            foreach ($visits as &$visit_ref) {
-                $stmt_actions = $pdo->prepare("SELECT a.*, u.username as user_name 
-                                             FROM actions a 
-                                             LEFT JOIN users u ON a.user_id = u.id 
-                                             WHERE a.visit_id = ? 
-                                             ORDER BY a.action_datetime DESC");
-                $stmt_actions->execute([$visit_ref['visit_id']]);
-                $visit_ref['actions'] = $stmt_actions->fetchAll();
+            if (!empty($visits)) {
+                // Fetch actions for the matched visit
+                foreach ($visits as &$visit_ref) {
+                    $stmt_actions = $pdo->prepare("SELECT a.*, u.username as user_name 
+                                                 FROM actions a 
+                                                 LEFT JOIN users u ON a.user_id = u.id 
+                                                 WHERE a.visit_id = ? 
+                                                 ORDER BY a.action_datetime DESC");
+                    $stmt_actions->execute([$visit_ref['visit_id']]);
+                    $visit_ref['actions'] = $stmt_actions->fetchAll();
+                }
+                unset($visit_ref);
+            } else {
+                 $visitor = null; // Don't show visitor info if visit ID doesn't match
+                 $error = "<i class='fas fa-exclamation-circle'></i> " . $t['error_not_found'] . " <strong>NIC: " . htmlspecialchars($search_nic) . ", Visit ID: " . htmlspecialchars($search_visit_id) . "</strong>. <br>";
             }
-            unset($visit_ref); // Break reference
 
         } else {
-             // User-friendly error message
-            $error = "<i class='fas fa-exclamation-circle'></i> " . $t['error_not_found'] . " <strong>" . htmlspecialchars($search_query) . "</strong>. <br>" . $t['error_empty'];
+             $error = "<i class='fas fa-exclamation-circle'></i> " . $t['error_not_found'] . " <strong>" . htmlspecialchars($search_nic) . "</strong>. <br>";
         }
     } else {
         $error = $t['error_empty'];
@@ -350,9 +325,12 @@ if (isset($_POST['search'])) {
             <div class="col-md-8">
                 <div class="search-card text-center">
                     <h3 class="search-title"><?= $t['check_history'] ?></h3>
-                    <form method="post" class="d-flex gap-2 justify-content-center flex-wrap">
-                        <input type="text" name="search_query" class="form-control form-control-lg w-75" placeholder="<?= $t['search_placeholder'] ?>" value="<?= htmlspecialchars($search_query) ?>" required>
-                        <button type="submit" name="search" class="btn btn-search btn-lg px-4"><i class="fas fa-search me-2"></i> <?= $t['search_btn'] ?></button>
+                    <form method="post" class="d-flex flex-column gap-3 justify-content-center align-items-center">
+                        <div class="d-flex w-100 gap-2 justify-content-center flex-wrap">
+                            <input type="text" name="search_nic" class="form-control form-control-lg" style="max-width:300px;" placeholder="NIC Number" value="<?= htmlspecialchars($search_nic) ?>" required>
+                            <input type="text" name="search_visit_id" class="form-control form-control-lg" style="max-width:300px;" placeholder="Visit ID" value="<?= htmlspecialchars($search_visit_id) ?>" required>
+                        </div>
+                        <button type="submit" name="search" class="btn btn-search btn-lg px-5 mt-2"><i class="fas fa-search me-2"></i> <?= $t['search_btn'] ?></button>
                     </form>
                     <?php if($error): ?>
                         <div class="alert alert-danger mt-3 mb-0" style="background: rgba(220, 53, 69, 0.2); color: #ffcdd2; border: 1px solid rgba(220, 53, 69, 0.3);"><?= $error ?></div>
