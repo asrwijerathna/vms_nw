@@ -20,6 +20,7 @@ $translations = [
         'search_btn' => 'Search',
         'error_not_found' => 'We couldn\'t find any records for',
         'error_empty' => 'Please enter an ID Number or Visitor ID.',
+        'error_rate_limit' => 'Too many search attempts. Please try again later.',
         'visit_history' => 'Visit History',
         'no_records' => 'No visit records found.',
         'section' => 'Section',
@@ -42,6 +43,7 @@ $translations = [
         'search_btn' => 'සොයන්න',
         'error_not_found' => 'අපට කිසිදු වාර්තාවක් සොයාගත නොහැකි විය',
         'error_empty' => 'කරුණාකර හැඳුනුම්පත් අංකය හෝ අමුත්තාගේ අංකය ඇතුළත් කරන්න.',
+        'error_rate_limit' => 'සෙවුම් උත්සාහයන් වැඩියි. කරුණාකර පසුව නැවත උත්සාහ කරන්න.',
         'visit_history' => 'පැමිණීමේ ඉතිහාසය',
         'no_records' => 'කිසිදු පැමිණීමේ වාර්තාවක් හමු නොවීය.',
         'section' => 'අංශය',
@@ -64,6 +66,7 @@ $translations = [
         'search_btn' => 'தேடு',
         'error_not_found' => 'எங்களால் எந்த பதிவுகளையும் காண முடியவில்லை',
         'error_empty' => 'தயவுசெய்து அடையாள அட்டை எண் அல்லது பார்வையாளர் எண்ணை உள்ளிடவும்.',
+        'error_rate_limit' => 'தேடல் முயற்சிகள் அதிகமாக உள்ளன. சிறிது நேரம் கழித்து மீண்டும் முயற்சிக்கவும்.',
         'visit_history' => 'வருகை வரலாறு',
         'no_records' => 'வருகை பதிவுகள் எதுவும் காணப்படவில்லை.',
         'section' => 'பிரிவு',
@@ -105,55 +108,67 @@ if (isset($_POST['submit_feedback'])) {
 }
 
 if (isset($_POST['search']) || isset($_POST['submit_feedback'])) {
-    $search_nic = trim($_POST['search_nic'] ?? $_POST['original_nic'] ?? '');
-    $search_visit_id = trim($_POST['search_visit_id'] ?? $_POST['original_visit_id'] ?? '');
-    
-    if (!empty($search_nic) && !empty($search_visit_id)) {
-        // Try to find visitor by NIC
-        $stmt = $pdo->prepare("SELECT * FROM visitors WHERE nic = ?");
-        $stmt->execute([$search_nic]);
-        $visitor = $stmt->fetch();
+    $ip = $_SERVER['REMOTE_ADDR'];
+    $is_rate_limited = false;
 
-        if ($visitor) {
-            // Find specific visit matching both NIC and Visit ID
-            $stmt = $pdo->prepare("
-                SELECT v.*, s.section_name, COALESCE(o.name, 'Not Assigned') AS officer 
-                FROM visits v 
-                JOIN sections s ON v.section_id = s.id 
-                LEFT JOIN officers o ON v.officer_id = o.id 
-                WHERE v.nic = ? AND (v.visit_id = ? OR v.visit_id = ?)
-            ");
-            
-            $padded_id = str_pad($search_visit_id, 8, '0', STR_PAD_LEFT);
-            $stmt->execute([$search_nic, $search_visit_id, $padded_id]);
-            $visits = $stmt->fetchAll();
-
-            if (!empty($visits)) {
-                // Fetch actions for the matched visit
-                foreach ($visits as &$visit_ref) {
-                    $stmt_actions = $pdo->prepare("SELECT a.*, u.username as user_name 
-                                                 FROM actions a 
-                                                 LEFT JOIN users u ON a.user_id = u.id 
-                                                 WHERE a.visit_id = ? 
-                                                 ORDER BY a.action_datetime DESC");
-                    $stmt_actions->execute([$visit_ref['visit_id']]);
-                    $visit_ref['actions'] = $stmt_actions->fetchAll();
-
-                    $stmt_fb = $pdo->prepare("SELECT * FROM visit_feedback WHERE visit_id = ?");
-                    $stmt_fb->execute([$visit_ref['visit_id']]);
-                    $visit_ref['feedback'] = $stmt_fb->fetch();
-                }
-                unset($visit_ref);
-            } else {
-                 $visitor = null; // Don't show visitor info if visit ID doesn't match
-                 $error = "<i class='fas fa-exclamation-circle'></i> " . $t['error_not_found'] . " <strong>NIC: " . htmlspecialchars($search_nic) . ", Visit ID: " . htmlspecialchars($search_visit_id) . "</strong>. <br>";
-            }
-
-        } else {
-             $error = "<i class='fas fa-exclamation-circle'></i> " . $t['error_not_found'] . " <strong>" . htmlspecialchars($search_nic) . "</strong>. <br>";
+    if (isset($_POST['search'])) {
+        if (!checkRateLimit($pdo, $ip, 'search_attempt', 20, 10)) {
+            $error = "<i class='fas fa-ban'></i> " . $t['error_rate_limit'];
+            $is_rate_limited = true;
         }
-    } else {
-        $error = $t['error_empty'];
+    }
+
+    if (!$is_rate_limited) {
+        $search_nic = trim($_POST['search_nic'] ?? $_POST['original_nic'] ?? '');
+        $search_visit_id = trim($_POST['search_visit_id'] ?? $_POST['original_visit_id'] ?? '');
+        
+        if (!empty($search_nic) && !empty($search_visit_id)) {
+            // Try to find visitor by NIC
+            $stmt = $pdo->prepare("SELECT * FROM visitors WHERE nic = ?");
+            $stmt->execute([$search_nic]);
+            $visitor = $stmt->fetch();
+
+            if ($visitor) {
+                // Find specific visit matching both NIC and Visit ID
+                $stmt = $pdo->prepare("
+                    SELECT v.*, s.section_name, COALESCE(o.name, 'Not Assigned') AS officer 
+                    FROM visits v 
+                    JOIN sections s ON v.section_id = s.id 
+                    LEFT JOIN officers o ON v.officer_id = o.id 
+                    WHERE v.nic = ? AND (v.visit_id = ? OR v.visit_id = ?)
+                ");
+                
+                $padded_id = str_pad($search_visit_id, 8, '0', STR_PAD_LEFT);
+                $stmt->execute([$search_nic, $search_visit_id, $padded_id]);
+                $visits = $stmt->fetchAll();
+
+                if (!empty($visits)) {
+                    // Fetch actions for the matched visit
+                    foreach ($visits as &$visit_ref) {
+                        $stmt_actions = $pdo->prepare("SELECT a.*, u.username as user_name 
+                                                     FROM actions a 
+                                                     LEFT JOIN users u ON a.user_id = u.id 
+                                                     WHERE a.visit_id = ? 
+                                                     ORDER BY a.action_datetime DESC");
+                        $stmt_actions->execute([$visit_ref['visit_id']]);
+                        $visit_ref['actions'] = $stmt_actions->fetchAll();
+
+                        $stmt_fb = $pdo->prepare("SELECT * FROM visit_feedback WHERE visit_id = ?");
+                        $stmt_fb->execute([$visit_ref['visit_id']]);
+                        $visit_ref['feedback'] = $stmt_fb->fetch();
+                    }
+                    unset($visit_ref);
+                } else {
+                     $visitor = null; // Don't show visitor info if visit ID doesn't match
+                     $error = "<i class='fas fa-exclamation-circle'></i> " . $t['error_not_found'] . " <strong>NIC: " . htmlspecialchars($search_nic) . ", Visit ID: " . htmlspecialchars($search_visit_id) . "</strong>. <br>";
+                }
+
+            } else {
+                 $error = "<i class='fas fa-exclamation-circle'></i> " . $t['error_not_found'] . " <strong>" . htmlspecialchars($search_nic) . "</strong>. <br>";
+            }
+        } else {
+            $error = $t['error_empty'];
+        }
     }
 }
 ?>

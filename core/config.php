@@ -74,4 +74,36 @@ if (!function_exists('hasPrivilege')) {
         return in_array($key, $privs);
     }
 }
+
+// Rate Limiting Helper Function
+if (!function_exists('checkRateLimit')) {
+    function checkRateLimit($pdo, $ip, $action, $max_attempts = 5, $lockout_minutes = 15) {
+        // Clean up old records
+        $stmt = $pdo->prepare("DELETE FROM rate_limits WHERE last_attempt < DATE_SUB(NOW(), INTERVAL ? MINUTE)");
+        $stmt->execute([$lockout_minutes]);
+
+        $stmt = $pdo->prepare("SELECT attempts FROM rate_limits WHERE ip_address = ? AND action = ?");
+        $stmt->execute([$ip, $action]);
+        $record = $stmt->fetch();
+
+        if ($record) {
+            if ($record['attempts'] >= $max_attempts) {
+                return false; // Rate limit exceeded
+            }
+            $stmt = $pdo->prepare("UPDATE rate_limits SET attempts = attempts + 1, last_attempt = NOW() WHERE ip_address = ? AND action = ?");
+            $stmt->execute([$ip, $action]);
+        } else {
+            $stmt = $pdo->prepare("INSERT INTO rate_limits (ip_address, action, attempts, last_attempt) VALUES (?, ?, 1, NOW())");
+            $stmt->execute([$ip, $action]);
+        }
+        return true; 
+    }
+}
+
+if (!function_exists('clearRateLimit')) {
+    function clearRateLimit($pdo, $ip, $action) {
+        $stmt = $pdo->prepare("DELETE FROM rate_limits WHERE ip_address = ? AND action = ?");
+        $stmt->execute([$ip, $action]);
+    }
+}
 ?>

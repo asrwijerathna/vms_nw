@@ -21,6 +21,7 @@ $translations = [
         'password' => 'Password',
         'login' => 'Login',
         'error_login' => 'Wrong username or password',
+        'error_rate_limit' => 'Too many login attempts. Please try again in 15 minutes.',
         'btn_en' => 'English',
         'btn_si' => 'Sinhala',
         'btn_ta' => 'Tamil'
@@ -34,6 +35,7 @@ $translations = [
         'password' => 'මුරපදය',
         'login' => 'ඇතුල් වන්න',
         'error_login' => 'පරිශීලක නාමය හෝ මුරපදය වැරදිය',
+        'error_rate_limit' => 'ප්‍රවේශ වීම් උත්සාහයන් වැඩියි. කරුණාකර විනාඩි 15කින් නැවත උත්සාහ කරන්න.',
         'btn_en' => 'ඉංග්‍රීසි',
         'btn_si' => 'සිංහල',
         'btn_ta' => 'දෙමළ'
@@ -47,6 +49,7 @@ $translations = [
         'password' => 'கடவுச்சொல்',
         'login' => 'உள்நுழைய',
         'error_login' => 'தவறான பயனர் பெயர் அல்லது கடவுச்சொல்',
+        'error_rate_limit' => 'உள்நுழைவு முயற்சிகள் அதிகமாக உள்ளன. 15 நிமிடங்களுக்குப் பிறகு மீண்டும் முயற்சிக்கவும்.',
         'btn_en' => 'ஆங்கிலம்',
         'btn_si' => 'சிங்களம்',
         'btn_ta' => 'தமிழ்'
@@ -58,23 +61,29 @@ $t = $translations[$lang] ?? $translations['en'];
 $user_error = '';
 
 if($_POST){
-    $username = trim($_POST['username']);
-    $password = $_POST['password'];
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
-    $stmt->execute([$username]);
-    $user = $stmt->fetch();
-    if($user && password_verify($password, $user['password'])){
-        $_SESSION['user'] = $user;
-        
-        // Load Privileges
-        $stmtPriv = $pdo->prepare("SELECT privilege_key FROM role_privileges WHERE role_key = ?");
-        $stmtPriv->execute([$user['role']]);
-        $_SESSION['user_privileges'] = $stmtPriv->fetchAll(PDO::FETCH_COLUMN);
-        
-        header('Location: modules/dashboard/index.php');
-        exit;
+    $ip = $_SERVER['REMOTE_ADDR'];
+    if (!checkRateLimit($pdo, $ip, 'login_attempt', 5, 15)) {
+        $user_error = $t['error_rate_limit'];
     } else {
-        $user_error = $t['error_login'];
+        $username = trim($_POST['username']);
+        $password = $_POST['password'];
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
+        $stmt->execute([$username]);
+        $user = $stmt->fetch();
+        if($user && password_verify($password, $user['password'])){
+            clearRateLimit($pdo, $ip, 'login_attempt');
+            $_SESSION['user'] = $user;
+            
+            // Load Privileges
+            $stmtPriv = $pdo->prepare("SELECT privilege_key FROM role_privileges WHERE role_key = ?");
+            $stmtPriv->execute([$user['role']]);
+            $_SESSION['user_privileges'] = $stmtPriv->fetchAll(PDO::FETCH_COLUMN);
+            
+            header('Location: modules/dashboard/index.php');
+            exit;
+        } else {
+            $user_error = $t['error_login'];
+        }
     }
 }
 // Auto create admin
