@@ -25,6 +25,11 @@ $translations = [
         'section' => 'Section',
         'officer' => 'Officer',
         'actions_taken' => 'Actions Taken',
+        'feedback_title' => 'Visitor Feedback',
+        'feedback_desc' => 'How was your experience?',
+        'feedback_comment' => 'Additional Comments (Optional)',
+        'submit_feedback' => 'Submit Feedback',
+        'feedback_success' => 'Thank you for your feedback!',
         'btn_en' => 'English',
         'btn_si' => 'Sinhala',
         'btn_ta' => 'Tamil'
@@ -42,6 +47,11 @@ $translations = [
         'section' => 'අංශය',
         'officer' => 'නිලධාරි',
         'actions_taken' => 'ගනු ලැබූ ක්‍රියාමාර්ග',
+        'feedback_title' => 'අමුත්තන්ගේ ප්‍රතිපෝෂණය',
+        'feedback_desc' => 'ඔබගේ අත්දැකීම කෙසේද?',
+        'feedback_comment' => 'අමතර අදහස් (විකල්ප)',
+        'submit_feedback' => 'ප්‍රතිපෝෂණය යවන්න',
+        'feedback_success' => 'ඔබගේ ප්‍රතිපෝෂණයට ස්තූතියි!',
         'btn_en' => 'ඉංග්‍රීසි',
         'btn_si' => 'සිංහල',
         'btn_ta' => 'දෙමළ'
@@ -59,6 +69,11 @@ $translations = [
         'section' => 'பிரிவு',
         'officer' => 'அதிகாரி',
         'actions_taken' => 'எடுக்கப்பட்ட நடவடிக்கைகள்',
+        'feedback_title' => 'பார்வையாளர் கருத்து',
+        'feedback_desc' => 'உங்கள் அனுபவம் எப்படி இருந்தது?',
+        'feedback_comment' => 'கூடுதல் கருத்துக்கள் (விருப்பமாக)',
+        'submit_feedback' => 'கருத்தை சமர்ப்பிக்க',
+        'feedback_success' => 'உங்கள் கருத்துக்கு நன்றி!',
         'btn_en' => 'ஆங்கிலம்',
         'btn_si' => 'சிங்களம்',
         'btn_ta' => 'தமிழ்'
@@ -70,12 +85,28 @@ $t = $translations[$lang] ?? $translations['en'];
 $visitor = null;
 $visits = [];
 $error = '';
+$feedback_msg = '';
 $search_nic = '';
 $search_visit_id = '';
 
-if (isset($_POST['search'])) {
-    $search_nic = trim($_POST['search_nic']);
-    $search_visit_id = trim($_POST['search_visit_id']);
+if (isset($_POST['submit_feedback'])) {
+    $fb_visit_id = trim($_POST['fb_visit_id']);
+    $fb_rating = (int)$_POST['rating'];
+    $fb_comment = trim($_POST['comment']);
+
+    // Check if feedback exists
+    $stmt = $pdo->prepare("SELECT id FROM visit_feedback WHERE visit_id = ?");
+    $stmt->execute([$fb_visit_id]);
+    if (!$stmt->fetch()) {
+        $stmt = $pdo->prepare("INSERT INTO visit_feedback (visit_id, rating, comment) VALUES (?, ?, ?)");
+        $stmt->execute([$fb_visit_id, $fb_rating, $fb_comment]);
+        $feedback_msg = $t['feedback_success'];
+    }
+}
+
+if (isset($_POST['search']) || isset($_POST['submit_feedback'])) {
+    $search_nic = trim($_POST['search_nic'] ?? $_POST['original_nic'] ?? '');
+    $search_visit_id = trim($_POST['search_visit_id'] ?? $_POST['original_visit_id'] ?? '');
     
     if (!empty($search_nic) && !empty($search_visit_id)) {
         // Try to find visitor by NIC
@@ -107,6 +138,10 @@ if (isset($_POST['search'])) {
                                                  ORDER BY a.action_datetime DESC");
                     $stmt_actions->execute([$visit_ref['visit_id']]);
                     $visit_ref['actions'] = $stmt_actions->fetchAll();
+
+                    $stmt_fb = $pdo->prepare("SELECT * FROM visit_feedback WHERE visit_id = ?");
+                    $stmt_fb->execute([$visit_ref['visit_id']]);
+                    $visit_ref['feedback'] = $stmt_fb->fetch();
                 }
                 unset($visit_ref);
             } else {
@@ -296,6 +331,30 @@ if (isset($_POST['search'])) {
         .status-completed { background-color: #d4edda; color: #155724; }
         .status-pending { background-color: #fff3cd; color: #856404; }
         .status-rejected { background-color: #f8d7da; color: #721c24; }
+        
+        .rating-stars {
+            display: flex;
+            flex-direction: row-reverse;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        .rating-stars input { display: none; }
+        .rating-stars label {
+            cursor: pointer;
+            font-size: 1.5rem;
+            color: #ccc;
+            transition: color 0.2s;
+        }
+        .rating-stars input:checked ~ label,
+        .rating-stars label:hover,
+        .rating-stars label:hover ~ label { color: #f39c12; }
+        .feedback-box {
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 15px;
+            border: 1px solid #dee2e6;
+        }
 
         @media (max-width: 768px) {
             .top-bar { padding: 0 20px; height: auto; padding-top: 10px; padding-bottom: 10px; flex-direction: column; gap:10px; }
@@ -334,6 +393,9 @@ if (isset($_POST['search'])) {
                     </form>
                     <?php if($error): ?>
                         <div class="alert alert-danger mt-3 mb-0" style="background: rgba(220, 53, 69, 0.2); color: #ffcdd2; border: 1px solid rgba(220, 53, 69, 0.3);"><?= $error ?></div>
+                    <?php endif; ?>
+                    <?php if($feedback_msg): ?>
+                        <div class="alert alert-success mt-3 mb-0" style="background: rgba(40, 167, 69, 0.2); color: #c3e6cb; border: 1px solid rgba(40, 167, 69, 0.3);"><i class="fas fa-check-circle me-2"></i><?= $feedback_msg ?></div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -384,6 +446,43 @@ if (isset($_POST['search'])) {
                                                         <div class="text-muted small"><?= nl2br(htmlspecialchars($action['action_text'])) ?></div>
                                                     </div>
                                                 <?php endforeach; ?>
+                                            </div>
+                                        <?php endif; ?>
+
+                                        <?php if ($v['feedback']): ?>
+                                            <div class="feedback-box border-start border-4 border-warning">
+                                                <h6 class="text-muted mb-1" style="font-size: 0.9rem;"><i class="fas fa-star text-warning"></i> <?= $t['feedback_title'] ?></h6>
+                                                <div>
+                                                    <?php for($i = 1; $i <= 5; $i++): ?>
+                                                        <i class="fas fa-star <?= $i <= $v['feedback']['rating'] ? 'text-warning' : 'text-muted' ?>" style="font-size: 0.8rem;"></i>
+                                                    <?php endfor; ?>
+                                                </div>
+                                                <?php if($v['feedback']['comment']): ?>
+                                                    <p class="mb-0 mt-2 text-dark small">"<?= nl2br(htmlspecialchars($v['feedback']['comment'])) ?>"</p>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php else: ?>
+                                            <div class="feedback-box mt-3 border-start border-4 border-primary">
+                                                <h6 class="fw-bold text-primary mb-2"><?= $t['feedback_title'] ?></h6>
+                                                <form method="post">
+                                                    <input type="hidden" name="fb_visit_id" value="<?= htmlspecialchars($v['visit_id']) ?>">
+                                                    <input type="hidden" name="original_nic" value="<?= htmlspecialchars($search_nic) ?>">
+                                                    <input type="hidden" name="original_visit_id" value="<?= htmlspecialchars($search_visit_id) ?>">
+                                                    
+                                                    <p class="mb-1 text-muted small"><?= $t['feedback_desc'] ?></p>
+                                                    
+                                                    <div class="rating-stars mb-3">
+                                                        <input type="radio" id="star5_<?= $v['visit_id'] ?>" name="rating" value="5" required/><label for="star5_<?= $v['visit_id'] ?>" title="5 stars"><i class="fas fa-star"></i></label>
+                                                        <input type="radio" id="star4_<?= $v['visit_id'] ?>" name="rating" value="4"/><label for="star4_<?= $v['visit_id'] ?>" title="4 stars"><i class="fas fa-star"></i></label>
+                                                        <input type="radio" id="star3_<?= $v['visit_id'] ?>" name="rating" value="3"/><label for="star3_<?= $v['visit_id'] ?>" title="3 stars"><i class="fas fa-star"></i></label>
+                                                        <input type="radio" id="star2_<?= $v['visit_id'] ?>" name="rating" value="2"/><label for="star2_<?= $v['visit_id'] ?>" title="2 stars"><i class="fas fa-star"></i></label>
+                                                        <input type="radio" id="star1_<?= $v['visit_id'] ?>" name="rating" value="1"/><label for="star1_<?= $v['visit_id'] ?>" title="1 star"><i class="fas fa-star"></i></label>
+                                                    </div>
+
+                                                    <textarea name="comment" class="form-control mb-2" rows="2" placeholder="<?= $t['feedback_comment'] ?>" style="background: white; border: 1px solid #ced4da; color: #495057;"></textarea>
+                                                    
+                                                    <button type="submit" name="submit_feedback" class="btn btn-sm btn-primary px-3 rounded-pill"><?= $t['submit_feedback'] ?></button>
+                                                </form>
                                             </div>
                                         <?php endif; ?>
                                     </div>

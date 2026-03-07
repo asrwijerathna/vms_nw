@@ -96,21 +96,16 @@ $pdo->prepare("INSERT INTO users (username, password, role) VALUES ('admin', ?, 
         body {
             margin: 0;
             padding: 0;
-            height: 100vh;
+            min-height: 100vh;
             background: linear-gradient(rgba(45, 0, 85, 0.9), rgba(120, 20, 180, 0.85)),
                         url('assets/img/bgimg.jpg') center/cover no-repeat fixed;
             display: flex;
-            align-items: center;
-            justify-content: center;
+            flex-direction: column;
             animation: fadeIn 1.5s ease-in-out;
-            position: relative;
         }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
         .top-bar {
-            position: absolute;
-            top: 0;
-            left: 0;
             width: 100%;
             height: 80px;
             background: rgba(255, 255, 255, 0.1);
@@ -121,6 +116,7 @@ $pdo->prepare("INSERT INTO users (username, password, role) VALUES ('admin', ?, 
             padding: 0 40px;
             z-index: 1000;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            flex-shrink: 0;
         }
 
         .top-bar-left {
@@ -162,6 +158,7 @@ $pdo->prepare("INSERT INTO users (username, password, role) VALUES ('admin', ?, 
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
             overflow: hidden;
             animation: float 6s ease-in-out infinite;
+            margin: auto;
         }
         @keyframes float {
             0%, 100% { transform: translateY(0px); }
@@ -326,9 +323,6 @@ $pdo->prepare("INSERT INTO users (username, password, role) VALUES ('admin', ?, 
 
     <style>
         .footer-bar {
-            position: absolute;
-            bottom: 0;
-            left: 0;
             width: 100%;
             text-align: center;
             padding: 15px;
@@ -337,6 +331,8 @@ $pdo->prepare("INSERT INTO users (username, password, role) VALUES ('admin', ?, 
             color: white;
             font-size: 0.9rem;
             border-top: 1px solid rgba(255, 255, 255, 0.1);
+            flex-shrink: 0;
+            margin-top: 20px;
         }
     </style>
     <div class="footer-bar">
