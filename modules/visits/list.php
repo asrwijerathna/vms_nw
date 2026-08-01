@@ -21,18 +21,30 @@ if (!empty($user['officer_id'])) {
     $params[] = $user['section_id'];
 }
 
+// Admin: Office hierarchy filter (deepest selected level wins)
+if ($user['role'] === 'admin') {
+    $filter_office = !empty($_GET['f_l3']) ? $_GET['f_l3']
+                   : (!empty($_GET['f_l2']) ? $_GET['f_l2']
+                   : (!empty($_GET['f_l1']) ? $_GET['f_l1'] : null));
+    if ($filter_office) {
+        $where   .= " AND sections.office_id = ?";
+        $params[] = $filter_office;
+    }
+}
+
 // Filters
 if ($_GET) {
     if (!empty($_GET['visit_id'])) { $where .= " AND visits.visit_id LIKE ?"; $params[] = "%{$_GET['visit_id']}%"; }
-    if (!empty($_GET['name'])) { $where .= " AND visitors.name LIKE ?"; $params[] = "%{$_GET['name']}%"; }
-    if (!empty($_GET['nic'])) { $where .= " AND visitors.nic LIKE ?"; $params[] = "%{$_GET['nic']}%"; }
-    if (!empty($_GET['reason'])) { $where .= " AND visits.reason LIKE ?"; $params[] = "%{$_GET['reason']}%"; }
-    if (!empty($_GET['section'])) { $where .= " AND visits.section_id = ?"; $params[] = $_GET['section']; }
-    if (!empty($_GET['officer'])) { $where .= " AND visits.officer_id = ?"; $params[] = $_GET['officer']; }
-    if (!empty($_GET['status'])) { $where .= " AND visits.status = ?"; $params[] = $_GET['status']; }
-    if (!empty($_GET['date_from'])) { $where .= " AND DATE(visits.visit_datetime) >= ?"; $params[] = $_GET['date_from']; }
-    if (!empty($_GET['date_to'])) { $where .= " AND DATE(visits.visit_datetime) <= ?"; $params[] = $_GET['date_to']; }
+    if (!empty($_GET['name']))     { $where .= " AND visitors.name LIKE ?";   $params[] = "%{$_GET['name']}%"; }
+    if (!empty($_GET['nic']))      { $where .= " AND visitors.nic LIKE ?";    $params[] = "%{$_GET['nic']}%"; }
+    if (!empty($_GET['reason']))   { $where .= " AND visits.reason LIKE ?";   $params[] = "%{$_GET['reason']}%"; }
+    if (!empty($_GET['section']))  { $where .= " AND visits.section_id = ?";  $params[] = $_GET['section']; }
+    if (!empty($_GET['officer']))  { $where .= " AND visits.officer_id = ?";  $params[] = $_GET['officer']; }
+    if (!empty($_GET['status']))   { $where .= " AND visits.status = ?";      $params[] = $_GET['status']; }
+    if (!empty($_GET['date_from'])){ $where .= " AND DATE(visits.visit_datetime) >= ?"; $params[] = $_GET['date_from']; }
+    if (!empty($_GET['date_to']))  { $where .= " AND DATE(visits.visit_datetime) <= ?"; $params[] = $_GET['date_to']; }
 }
+
 
 $sort = ($_GET['sort'] ?? 'desc') === 'asc' ? 'ASC' : 'DESC';
 

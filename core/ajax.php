@@ -8,6 +8,17 @@ if(isset($_POST['nic_check'])){
     exit;
 }
 
+// Return child offices as JSON (used by cascading office filter dropdowns)
+if (isset($_GET['office_children'])) {
+    if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'admin') { exit; }
+    $parent_id = intval($_GET['office_children']);
+    $stmt = $pdo->prepare("SELECT id, office_name, office_level FROM provincial_offices WHERE parent_office_id = ? ORDER BY office_name");
+    $stmt->execute([$parent_id]);
+    header('Content-Type: application/json');
+    echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+    exit;
+}
+
 if(isset($_POST['section_officers'])){
     $sid = $_POST['section_officers'];
     $stmt = $pdo->prepare("SELECT * FROM officers WHERE section_id = ?");

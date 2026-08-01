@@ -21,31 +21,67 @@ function generate_visit_id($pdo) {
     return str_pad($num, 8, '0', STR_PAD_LEFT);
 }
 
-if(isset($_POST['nic'])) {
+// --- Generate a one-time form token to prevent double submissions ---
+if (empty($_SESSION['form_token'])) {
+    $_SESSION['form_token'] = bin2hex(random_bytes(16));
+}
+
+$success_visit_id = null;
+$error_message     = null;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['nic'])) {
+
+    // --- Validate one-time token (prevents double-click / duplicate submission) ---
+    if (!isset($_POST['form_token']) || $_POST['form_token'] !== $_SESSION['form_token']) {
+        // Token mismatch = duplicate or forged submit; just redirect back
+        header('Location: register.php');
+        exit;
+    }
+
+    // Invalidate token immediately so a refresh cannot re-submit
+    unset($_SESSION['form_token']);
+
     $nic = validate_nic($_POST['nic']);
-    if(!$nic) die("Invalid NIC format");
-   
+    if (!$nic) {
+        $_SESSION['reg_error'] = 'Invalid NIC format.';
+        header('Location: register.php');
+        exit;
+    }
+
     $stmt = $pdo->prepare("SELECT * FROM visitors WHERE nic = ?");
     $stmt->execute([$nic]);
     $visitor = $stmt->fetch();
-   
-    if(!$visitor) {
-        $stmt = $pdo->prepare("INSERT INTO visitors (nic,name,phone,whatsapp) VALUES (?,?,?,?)");
+
+    if (!$visitor) {
+        $stmt = $pdo->prepare("INSERT INTO visitors (nic, name, phone, whatsapp) VALUES (?, ?, ?, ?)");
         $stmt->execute([$nic, $_POST['name'], $_POST['phone'], $_POST['whatsapp']]);
     }
-   
-    // Create visit - Officer optional
-    $visit_id = generate_visit_id($pdo);
+
+    // Create visit
+    $visit_id  = generate_visit_id($pdo);
     $officer_id = !empty($_POST['officer']) ? $_POST['officer'] : NULL;
     $client_time = !empty($_POST['client_time']) ? $_POST['client_time'] : date('Y-m-d H:i:s');
-    
+    $reason     = ($_POST['reason'] === 'Other') ? $_POST['other_reason'] : $_POST['reason'];
+
     $stmt = $pdo->prepare("INSERT INTO visits (visit_id, nic, reason, section_id, officer_id, visit_datetime) VALUES (?, ?, ?, ?, ?, ?)");
-	
-	$reason = $_POST['reason'] === 'Other' ? $_POST['other_reason'] : $_POST['reason'];
-	$stmt->execute([$visit_id, $nic, $reason, $_POST['section'], $officer_id, $client_time]);
-   
-    echo "<script>window.open('../visits/receipt.php?id=$visit_id','_blank');</script>";
-    echo "<script>alert('Visitor registered: $visit_id');</script>";
+    $stmt->execute([$visit_id, $nic, $reason, $_POST['section'], $officer_id, $client_time]);
+
+    // PRG: store visit_id in session and redirect (GET) so refresh never re-submits
+    $_SESSION['reg_success'] = $visit_id;
+    header('Location: register.php');
+    exit;
+}
+
+// Pick up flash messages after redirect
+$success_visit_id = null;
+$error_message    = null;
+if (!empty($_SESSION['reg_success'])) {
+    $success_visit_id = $_SESSION['reg_success'];
+    unset($_SESSION['reg_success']);
+}
+if (!empty($_SESSION['reg_error'])) {
+    $error_message = $_SESSION['reg_error'];
+    unset($_SESSION['reg_error']);
 }
 ?>
 <!DOCTYPE html>
@@ -76,8 +112,9 @@ if(isset($_POST['nic'])) {
 
             <div class="card shadow-sm">
                 <div class="card-body">
-                    <form method="post" id="visitForm">
+                    <form method="post" id="visitForm" autocomplete="off">
                         <input type="hidden" name="client_time" id="client_time">
+                        <input type="hidden" name="form_token" value="<?= htmlspecialchars($_SESSION['form_token'] ?? '') ?>">
                         <div class="row">
                             <div class="col-md-6">
                                 <label class="form-label">NIC Number *</label>
@@ -145,13 +182,28 @@ if(isset($_POST['nic'])) {
                                     <option value="">-- Select Officer Later --</option>
                                 </select>
                                 <label class="d-block">&nbsp;</label>
-                                <button type="submit" class="btn btn-success w-100">Register & Print Token</button>
+                                <button type="submit" id="submitBtn" class="btn btn-success w-100">Register &amp; Print Token</button>
                             </div>
                         </div>
                     </form>
                 </div>
             </div>
             
+            <?php if ($success_visit_id): ?>
+            <div class="alert alert-success alert-dismissible fade show mt-3" role="alert" id="successAlert">
+                <i class="fas fa-check-circle me-2"></i>
+                Visitor registered successfully! Visit ID: <strong><?= htmlspecialchars($success_visit_id) ?></strong>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            <?php endif; ?>
+            <?php if ($error_message): ?>
+            <div class="alert alert-danger alert-dismissible fade show mt-3" role="alert">
+                <i class="fas fa-exclamation-circle me-2"></i>
+                <?= htmlspecialchars($error_message) ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            <?php endif; ?>
+
             <div id="previousVisits" class="mt-4"></div>
 
             <?php include '../../includes/footer.php'; ?>
@@ -205,6 +257,7 @@ function toggleOther() {
 }
 
 $('#visitForm').on('submit', function() {
+    // Set client-side timestamp
     let dt = new Date();
     let Y = dt.getFullYear();
     let m = String(dt.getMonth() + 1).padStart(2, '0');
@@ -213,7 +266,21 @@ $('#visitForm').on('submit', function() {
     let i = String(dt.getMinutes()).padStart(2, '0');
     let s = String(dt.getSeconds()).padStart(2, '0');
     $('#client_time').val(`${Y}-${m}-${d} ${H}:${i}:${s}`);
+
+    // Disable button immediately to prevent double-click duplicates
+    $('#submitBtn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-2"></span>Processing...');
 });
+
+// Auto-open receipt and show success alert after redirect
+<?php if ($success_visit_id): ?>
+$(document).ready(function() {
+    window.open('../visits/receipt.php?id=<?= $success_visit_id ?>', '_blank');
+    // Auto-dismiss success alert after 6 seconds
+    setTimeout(function() {
+        $('#successAlert').alert('close');
+    }, 6000);
+});
+<?php endif; ?>
 </script>
 
 </script>
